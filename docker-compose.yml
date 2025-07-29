@@ -1,0 +1,23 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  newsbot:
+    build: . # 指示 Docker Compose 在当前目录查找 Dockerfile 并构建镜像
+    container_name: newsbot # 容器名
+    restart: unless-stopped # 容器退出时自动重启，除非手动停止
+    volumes:
+      # 将宿主机的 ./data 目录挂载到容器的 /app/data
+      # 这样 Bot 写入的数据文件 (如 user_virtual_roles.json) 会持久化在宿主机上
+      - ./data:/app/data
+    environment:
+      # --- Discord 配置 ---
+      # 通过环境变量将敏感信息注入到容器中
+      # 这些变量将覆盖 config.py 中 os.getenv 的默认值
+      # 你需要在 docker-compose.yml 同级目录下创建一个 .env 文件来设置这些变量
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN} # 从 .env 文件读取 DISCORD_BOT_TOKEN
+      - DISCORD_BOT_PROXY=${DISCORD_BOT_PROXY:-} # 从 .env 文件读取 DISCORD_BOT_PROXY，如果没有则为空字符串
+    logging: # 可选：限制日志输出大小
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,16 @@
+config_data.py
+.venv
+config.py
+.idea/*
+/data/user_data.json
+__pycache__/
+.env
+deploy.env
+rolebot_image.tar
+data/*.db
+data
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/inspectionProfiles/Project_Default.xml
+.idea/modules.xml
+.idea/NewsBot.iml
+.idea/vcs.xml
