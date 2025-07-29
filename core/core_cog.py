@@ -8,7 +8,7 @@ import zipfile
 
 import config
 from core.embed_link.embed_manager import EmbedLinkManager
-from utility.permison import is_admin
+from utility.permison import is_admin, is_admin_check
 
 try:
     import distro
@@ -25,7 +25,6 @@ import discord
 import psutil
 from discord import app_commands
 from discord.ext import commands, tasks
-
 
 if typing.TYPE_CHECKING:
     from main import NewsBot
@@ -73,7 +72,6 @@ class CoreCog(commands.Cog, name="Core"):
         """当 Cog 准备就绪时，注册持久化视图。"""
         self.logger.info("核心模块已就绪，主控制面板持久化视图已注册。")
 
-
     @tasks.loop(minutes=15)
     async def update_registered_embeds_task(self):
         """定时刷新所有已注册的EmbedLinkManager。"""
@@ -99,7 +97,7 @@ class CoreCog(commands.Cog, name="Core"):
     core_group = app_commands.Group(
         name=f"{config.COMMAND_GROUP_NAME}丨核心", description="机器人核心管理与状态指令",
         guild_ids=[gid for gid in config.GUILD_IDS],
-        default_permissions=discord.Permissions(manage_threads=True),
+        default_permissions=discord.Permissions(send_messages=True),
     )
 
     async def link_module_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
@@ -142,7 +140,8 @@ class CoreCog(commands.Cog, name="Core"):
         """
         【已增强】显示一个包含详细系统和 Redis 信息的监控面板。
         """
-        await interaction.response.defer(ephemeral=False, thinking=True)
+        ephemeral = not is_admin_check(interaction)
+        await interaction.response.defer(ephemeral = ephemeral, thinking=True)
 
         # --- 1. 获取进程和机器人信息 ---
         process = psutil.Process()
@@ -213,12 +212,12 @@ class CoreCog(commands.Cog, name="Core"):
         await interaction.followup.send(embed=embed)
 
     @core_group.command(name="获取数据备份", description="打包并发送 data 目录下的所有数据文件。")
-    @is_admin()
     async def backup_data(self, interaction: discord.Interaction):
         """
         创建一个包含 'data' 目录下所有文件的 zip 压缩包，并私密地发送给命令使用者。
         """
-        await interaction.response.defer(ephemeral=False, thinking=True)
+        ephemeral = not is_admin_check(interaction)
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
 
         self.logger.info(
             f"数据备份操作触发: "
@@ -262,7 +261,7 @@ class CoreCog(commands.Cog, name="Core"):
 
         # 创建 discord.File 对象并发送
         backup_file = discord.File(memory_file, filename=filename)
-        await interaction.followup.send(content=f"📦 {interaction.user.mention}，这是您请求的数据备份文件：", file=backup_file, ephemeral=False)
+        await interaction.followup.send(content=f"📦 {interaction.user.mention}，这是您请求的数据备份文件：", file=backup_file)
 
 
 async def setup(bot: 'NewsBot'):
