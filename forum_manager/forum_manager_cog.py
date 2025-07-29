@@ -20,6 +20,20 @@ from utility.permison import is_admin
 if TYPE_CHECKING:
     from main import NewsBot
 
+# --- 动态设置任务时间 ---
+# 从 config.py 读取时间字符串并解析
+try:
+    _H, _M = map(int, config.DAILY_TASK_TRIGGER_TIME.split(':'))
+    # 注意：这里的时区需要与任务逻辑中的时区概念保持一致。
+    # tasks.loop 的 time 参数只接受一个固定的时区。
+    # 我们假设所有服务器的时区相似，或者以一个主要时区为准。
+    # 这里我们使用一个通用的 'Asia/Shanghai' 作为任务调度器的基准时区。
+    # 任务内部逻辑会使用每个服务器自己的时区配置。
+    _TASK_TIME = time(hour=_H, minute=_M, tzinfo=pytz.timezone('Asia/Shanghai'))
+except (ValueError, KeyError):
+    print("错误：无法解析 config.py 中的 DAILY_TASK_TRIGGER_TIME，将使用默认时间 00:05")
+    _TASK_TIME = time(hour=0, minute=5, tzinfo=pytz.timezone('Asia/Shanghai'))
+# --- 结束动态设置 ---
 
 class ForumManagerCog(commands.Cog, name="ForumManager"):
     """
@@ -133,7 +147,9 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
             self.logger.error(f"[{guild.name}] 配置的论坛频道ID {forum_id} 无效或不是论坛频道。")
             return
 
-        today = datetime.now(pytz.timezone(fm_config.get("timezone", "UTC"))).date()
+        # 获取服务器的本地时区
+        local_tz = pytz.timezone(fm_config.get("timezone", "UTC"))
+        today = datetime.now(local_tz).date()
         yesterday = today - timedelta(days=1)
 
         self.logger.info(f"[{guild.name}] 正在查找今天的快讯帖子...")
@@ -244,7 +260,17 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
 
         # --- 任务3: 归档其他过时帖子 ---
         try:
-            cutoff_time = datetime.now(pytz.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            # === 使用可配置的归档截止时间 ===
+            cutoff_time_str = fm_config.get("archive_cutoff_time", "00:00")
+            cutoff_hour, cutoff_minute = map(int, cutoff_time_str.split(':'))
+
+            cutoff_time = datetime.now(local_tz).replace(
+                hour=cutoff_hour,
+                minute=cutoff_minute,
+                second=0,
+                microsecond=0
+            )
+            # =================================
             # 遍历活跃帖子
             for thread in forum.threads:
                 if thread.created_at < cutoff_time and \
