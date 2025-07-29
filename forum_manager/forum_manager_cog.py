@@ -54,10 +54,24 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
 
     # --- 辅助函数 ---
     async def find_daily_briefing_thread(self, forum: discord.ForumChannel, target_date: datetime.date) -> Optional[discord.Thread]:
-        """通过标题和标签在论坛中查找指定日期的快讯帖子。"""
-        # 格式化日期以匹配标题
-        date_str = target_date.strftime("%Y年%#m月%#d日").replace(" 0", " ")  # Windows下#，Linux下-
-        title_pattern = re.compile(f"🗞️.*?每日快讯.*?-.*?{re.escape(date_str)}")
+        """通过标题和标签在论坛中查找指定日期的快讯帖子。(已使用健壮的日期匹配)"""
+        # ==================== 正则表达式构建 ====================
+        # 分别处理月和日
+        month = target_date.month
+        day = target_date.day
+
+        # 如果月份是单位数，则构建一个可以匹配带或不带前导零的模式 (e.g., (0?7))
+        # 否则，直接使用两位数
+        month_pattern = f"(0?{month})" if month < 10 else str(month)
+
+        # 对日期做同样处理
+        day_pattern = f"(0?{day})" if day < 10 else str(day)
+
+        # 组合成最终的日期匹配模式
+        date_pattern_str = f"{target_date.year}年{month_pattern}月{day_pattern}日"
+
+        title_pattern = re.compile(f"🗞️.*?每日快讯.*?-.*?{date_pattern_str}")
+        # =============================================================
 
         # 检查活跃帖子
         for thread in forum.threads:
@@ -104,6 +118,13 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         today = datetime.now(pytz.timezone(fm_config.get("timezone", "UTC"))).date()
         yesterday = today - timedelta(days=1)
 
+        self.logger.info(f"[{guild.name}] 正在查找今天的快讯帖子...")
+        today_thread = await self.find_daily_briefing_thread(forum, today)
+        if today_thread:
+            self.logger.info(f"[{guild.name}] 已找到今天的快讯帖子: {today_thread.name} (ID: {today_thread.id})")
+        else:
+            self.logger.info(f"[{guild.name}] 未找到今天的快讯帖子，将在稍后创建。")
+
         self.logger.info(f"[{guild.name}] 正在开始归档旧的快讯帖子")
         # --- 任务1: 归档旧的快讯帖子 ---
         try:
@@ -116,25 +137,32 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
                 for thread in forum.threads:
                     if briefing_tag in thread.applied_tags and not thread.archived:
                         # 确保不是今天的帖子
-                        if not re.search(today.strftime("%Y年%#m月%#d日"), thread.name):
+                        if briefing_tag in thread.applied_tags and not thread.archived:
+                            # 如果找到了今天的帖子，并且当前循环的帖子就是它，那么就跳过，不归档。
+                            if today_thread and thread.id == today_thread.id:
+                                continue
+
+                            # 执行归档操作
                             new_tags = [tag for tag in thread.applied_tags if tag.id != briefing_tag_id]
                             new_tags.append(past_tag)
                             await thread.edit(pinned=False, locked=True, archived=True, applied_tags=new_tags)
                             self.logger.info(f"[{guild.name}] 已归档旧快讯帖子: {thread.name}")
-                            await asyncio.sleep(1)  # 避免速率限制
+                            await asyncio.sleep(1)
+
         except Exception as e:
             self.logger.error(f"[{guild.name}] 归档旧快讯时出错: {e}", exc_info=True)
 
-        self.logger.info(f"[{guild.name}] 正在开始发布今天的新闻快讯,{await self.find_daily_briefing_thread(forum, today)}")
+        self.logger.info(f"[{guild.name}] 正在开始发布今天的新闻快讯")
         # --- 任务2: 发布今天的新闻快讯 ---
         try:
-            today_thread = await self.find_daily_briefing_thread(forum, today)
             # 检查是否已存在今天的帖子
             if today_thread:
-                self.logger.info(f"[{guild.name}] <UNK>: 已有{today_thread.name}，进行置顶。")
+                self.logger.info(f"[{guild.name}] 已有{today_thread.name}，进行置顶。")
                 await today_thread.edit(pinned=True, locked=True)
             else:
-                today_str = today.strftime("%Y年%#m月%#d日").replace(" 0", " ")
+                # 使用固定格式，避免 strftime 的平台差异
+                today_str = f"{today.year}年{today.month}月{today.day}日"
+
                 post_title = f"🗞️ | 每日快讯-{today_str}"
                 # 引用你提供的帖子模板
                 post_content = \
@@ -178,6 +206,9 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
                 if thread.created_at < cutoff_time and \
                         not thread.locked and \
                         long_term_tag_id not in [tag.id for tag in thread.applied_tags]:
+                    # 额外检查，确保不会意外归档今天的快讯（双重保险）
+                    if today_thread and thread.id == today_thread.id:
+                        continue
                     await thread.edit(locked=True, archived=True)
                     self.logger.info(f"[{guild.name}] 已归档过时帖子: {thread.name}")
                     await asyncio.sleep(1)

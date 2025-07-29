@@ -8,6 +8,7 @@ import zipfile
 
 import config
 from core.embed_link.embed_manager import EmbedLinkManager
+from utility.permison import is_admin
 
 try:
     import distro
@@ -98,7 +99,7 @@ class CoreCog(commands.Cog, name="Core"):
     core_group = app_commands.Group(
         name=f"{config.COMMAND_GROUP_NAME}丨核心", description="机器人核心管理与状态指令",
         guild_ids=[gid for gid in config.GUILD_IDS],
-        default_permissions=discord.Permissions(manage_roles=True),
+        default_permissions=discord.Permissions(manage_threads=True),
     )
 
     async def link_module_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
@@ -112,7 +113,7 @@ class CoreCog(commands.Cog, name="Core"):
     @core_group.command(name="配置embed链接", description="配置一个模块使用的Discord消息链接")
     @app_commands.describe(module="要配置的模块名", url="指向Discord消息的URL (留空以清除)")
     @app_commands.autocomplete(module=link_module_autocomplete)
-    @app_commands.checks.has_permissions(manage_roles=True)
+    @is_admin()
     async def config_embed_link(self, interaction: discord.Interaction, module: str, url: typing.Optional[str] = None):
         """配置或清除一个模块的消息链接。"""
         manager = EmbedLinkManager.get_manager(module)
@@ -136,7 +137,7 @@ class CoreCog(commands.Cog, name="Core"):
             await interaction.edit_original_response(content=f"❌ 发生未知错误，请检查日志。")
 
     @core_group.command(name="系统状态", description="显示机器人和服务器的实时系统信息。")
-    @app_commands.checks.has_permissions(manage_roles=True)
+    @is_admin()
     async def system_status(self, interaction: discord.Interaction):
         """
         【已增强】显示一个包含详细系统和 Redis 信息的监控面板。
@@ -212,7 +213,7 @@ class CoreCog(commands.Cog, name="Core"):
         await interaction.followup.send(embed=embed)
 
     @core_group.command(name="获取数据备份", description="打包并发送 data 目录下的所有数据文件。")
-    @app_commands.checks.has_permissions(manage_roles=True)
+    @is_admin()
     async def backup_data(self, interaction: discord.Interaction):
         """
         创建一个包含 'data' 目录下所有文件的 zip 压缩包，并私密地发送给命令使用者。
