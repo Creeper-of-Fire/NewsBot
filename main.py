@@ -11,6 +11,7 @@ import config
 # 导入我们的配置和模块
 import config_data
 from at.at_cog import AtCog
+from forum_manager.forum_manager_cog import ForumManagerCog
 from virtual_role.virtual_role_cog import VirtualRoleCog
 from core.embed_link.embed_manager import EmbedLinkManager
 
@@ -101,6 +102,7 @@ class CogManager:
         self.cog_map: Dict[str, Type[commands.Cog] | List[Type[commands.Cog]]] = {
             "core": CoreCog,
             "at": [AtCog, VirtualRoleCog],
+            "forum_manager": ForumManagerCog,
         }
 
     async def load_all_enabled(self):

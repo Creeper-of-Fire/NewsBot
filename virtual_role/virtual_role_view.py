@@ -23,7 +23,7 @@ class OpenVirtualRoleManageButton(ui.Button):
     def __init__(self, cog: 'VirtualRoleCog'):
         self.cog = cog
         super().__init__(
-            label="管理我的通知组",
+            label="管理新闻订阅",
             style=discord.ButtonStyle.primary,
             custom_id="open_virtual_role_manager",
             emoji="🔔"
