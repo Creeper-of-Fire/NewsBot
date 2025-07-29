@@ -269,7 +269,7 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
                 minute=cutoff_minute,
                 second=0,
                 microsecond=0
-            )
+            ) - timedelta(days=1)
             # =================================
             # 遍历活跃帖子
             for thread in forum.threads:
