@@ -25,32 +25,50 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
     """
     负责新闻论坛的每日自动化管理，包括发帖、归档和更新快讯。
     """
+    __cog_tasks__: list[tasks.Loop]
 
     def __init__(self, bot: 'NewsBot'):
         self.bot = bot
         self.logger = bot.logger
-        # 为每个服务器启动一个定时任务
+        # 启动主任务循环
+        self.master_daily_task.start()
+
+    def cog_unload(self):
+        # 当cog卸载时，自动停止所有任务
+        self.master_daily_task.cancel()
+
+    # ==================== 核心任务循环 ====================
+    @tasks.loop(time=time(hour=0, minute=0, second=0, tzinfo=pytz.timezone("Asia/Shanghai")))
+    async def master_daily_task(self):
+        """
+        主每日任务循环。每天0点触发，然后遍历所有服务器执行管理。
+        """
+        self.logger.info("主每日任务触发，开始为所有已配置的服务器执行论坛管理...")
+
+        # 确保在机器人准备就绪后才执行
+        await self.bot.wait_until_ready()
+
         for guild in self.bot.guilds:
             guild_config = GUILD_CONFIGS.get(guild.id, {})
             fm_config = guild_config.get("forum_manager_config")
+
+            # 检查此服务器是否启用了该功能
             if fm_config and fm_config.get("enabled", False):
+                self.logger.info(f"-> 正在为服务器 '{guild.name}' ({guild.id}) 执行任务...")
                 try:
-                    tz_str = fm_config.get("timezone", "UTC")
-                    tz = pytz.timezone(tz_str)
-                    # 创建一个基于特定时区的 time 对象
-                    run_time = time(hour=0, minute=0, second=0, tzinfo=tz)
-
-                    # 使用动态创建的task来处理多服务器
-                    task = tasks.loop(time=run_time)(lambda x: self.daily_forum_management(guild.id))
-                    task.start()
-                    self.logger.info(f"为服务器 {guild.id} 启动了每日论坛管理任务，将在 {run_time} ({tz_str}) 执行。")
+                    # 调用为单个服务器设计的管理函数
+                    await self.daily_forum_management(guild.id)
                 except Exception as e:
-                    self.logger.error(f"为服务器 {guild.id} 启动每日任务失败: {e}")
+                    self.logger.error(f"在为服务器 '{guild.name}' 执行每日任务时捕获到未处理的异常: {e}", exc_info=True)
 
-    def cog_unload(self):
-        # 停止所有动态创建的任务
-        for task in self.__cog_tasks__:
-            task.cancel()
+        self.logger.info("所有服务器的每日论坛管理执行完毕。")
+
+    @master_daily_task.before_loop
+    async def before_master_daily_task(self):
+        """在任务循环开始前，等待机器人完全准备就绪。"""
+        self.logger.info("每日主任务正在等待机器人上线...")
+        await self.bot.wait_until_ready()
+        self.logger.info("机器人已上线，每日主任务准备就绪。")
 
     # --- 辅助函数 ---
     async def find_daily_briefing_thread(self, forum: discord.ForumChannel, target_date: datetime.date) -> Optional[discord.Thread]:
@@ -130,24 +148,50 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         try:
             briefing_tag = forum.get_tag(briefing_tag_id)
             past_tag = forum.get_tag(past_briefing_tag_id)
+
             if not briefing_tag or not past_tag:
                 self.logger.error(f"[{guild.name}] 快讯或PAST快讯标签ID无效。")
             else:
-                # 遍历所有带“每日快讯”标签的帖子
                 for thread in forum.threads:
-                    if briefing_tag in thread.applied_tags and not thread.archived:
-                        # 确保不是今天的帖子
-                        if briefing_tag in thread.applied_tags and not thread.archived:
-                            # 如果找到了今天的帖子，并且当前循环的帖子就是它，那么就跳过，不归档。
-                            if today_thread and thread.id == today_thread.id:
-                                continue
+                    # 如果帖子已经归档，直接跳过
+                    if thread.archived:
+                        continue
 
-                            # 执行归档操作
-                            new_tags = [tag for tag in thread.applied_tags if tag.id != briefing_tag_id]
+                    is_briefing = briefing_tag in thread.applied_tags
+                    is_past = past_tag in thread.applied_tags
+
+                    # 确定是否需要归档
+                    should_archive = False
+
+                    # 情况1: 帖子是“每日快讯”，但不是今天的帖子
+                    if is_briefing:
+                        # 如果是今天的帖子，就跳过它
+                        if today_thread and thread.id == today_thread.id:
+                            continue
+                        # 否则，它就是一个需要归档的旧快讯
+                        should_archive = True
+
+                    # 情况2: 帖子被标记为 "PAST"，但还没归档
+                    elif is_past:
+                        should_archive = True
+
+                    # 如果确定需要归档，就执行操作
+                    if should_archive:
+                        self.logger.info(f"[{guild.name}] 准备归档帖子: {thread.name}")
+
+                        # 准备新的标签列表：确保有PAST标签，移除每日快讯标签
+                        new_tags = [tag for tag in thread.applied_tags if tag.id != briefing_tag_id]
+                        if past_tag not in new_tags:
                             new_tags.append(past_tag)
-                            await thread.edit(pinned=False, locked=True, archived=True, applied_tags=new_tags)
-                            self.logger.info(f"[{guild.name}] 已归档旧快讯帖子: {thread.name}")
-                            await asyncio.sleep(1)
+
+                        await thread.edit(
+                            pinned=False,
+                            locked=True,
+                            archived=True,
+                            applied_tags=new_tags
+                        )
+                        self.logger.info(f"[{guild.name}] 已成功归档: {thread.name}")
+                        await asyncio.sleep(1)  # 避免速率限制
 
         except Exception as e:
             self.logger.error(f"[{guild.name}] 归档旧快讯时出错: {e}", exc_info=True)
@@ -224,7 +268,7 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
         default_permissions=discord.Permissions(manage_threads=True)
     )
 
-    @forum_group.command(name="手动执行每日任务", description="[管理员] 手动触发一次每日发帖和归档流程。")
+    @forum_group.command(name="手动执行每日任务", description="[记者] 手动触发一次每日发帖和归档流程。")
     @is_admin()
     async def manual_run_daily_task(self, interaction: discord.Interaction):
         await interaction.response.send_message("⌛ 正在手动执行每日论坛管理任务...", ephemeral=True)
