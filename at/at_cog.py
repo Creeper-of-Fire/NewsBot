@@ -1,7 +1,7 @@
 # at_cog.py (修改后)
 import asyncio
-from typing import List, TYPE_CHECKING, Optional, Dict, Any
 import time
+from typing import List, TYPE_CHECKING, Optional, Dict, Any
 
 import discord
 from discord import app_commands
@@ -75,7 +75,7 @@ class AtCog(commands.Cog):
 
         return not user_role_ids.isdisjoint(allowed_roles_ids)
 
-    async def _perform_temp_role_ping(
+    async def perform_temp_role_ping(
             self,
             interaction: discord.Interaction,
             user_ids: List[int],
@@ -175,15 +175,26 @@ class AtCog(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(roles=True)
             )
 
-            # 5. 如果是幽灵提及，则删除消息
+            # 5. 根据 ghost_ping 处理消息
             if ghost_ping:
-                await asyncio.sleep(1)  # 稍作延迟确保通知送达
-                await sent_message.delete()
+                await asyncio.sleep(2)  # 给予客户端足够的时间来接收和处理通知
+
+                # 构建编辑后的、无提及效果的内容
+                edited_content = f"**To:** `@{target_name}`"  # 更清晰地表明目标群体
+
+                # 编辑消息，移除提及
+                await sent_message.edit(
+                    content=edited_content,
+                    allowed_mentions=discord.AllowedMentions.none()  # 关键！禁止任何提及
+                )
+
+                final_response_verb = "发送了幽灵提及"
+            else:
+                final_response_verb = "发送了提及"
 
             # 更新最终状态给用户
             final_response_msg = (
-                f"✅ 成功向虚拟组 **{target_name}** ({added_count} 人) 发送了"
-                f"{'幽灵' if ghost_ping else ''}提及。"
+                f"✅ 成功向虚拟组 **{target_name}** ({added_count} 人) {final_response_verb}。"
                 f"{f' ({skipped_count} 人被跳过)' if skipped_count > 0 else ''}"
             )
             await interaction.edit_original_response(content=final_response_msg, embed=None)
@@ -283,7 +294,7 @@ class AtCog(commands.Cog):
                     return
 
                 # 调用新的核心处理函数
-                await self._perform_temp_role_ping(interaction, user_ids, target_name, message, ghost_ping)
+                await self.perform_temp_role_ping(interaction, user_ids, target_name, message, ghost_ping)
 
             else:
                 await interaction.followup.send(f"❌ 内部错误：`{target}` 的配置类型 `{target_type}` 无效。", ephemeral=True)

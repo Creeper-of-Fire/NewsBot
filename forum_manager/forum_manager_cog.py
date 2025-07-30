@@ -34,6 +34,8 @@ try:
 except (ValueError, KeyError):
     print("错误：无法解析 config.py 中的 DAILY_TASK_TRIGGER_TIME，将使用默认时间 00:05")
     _TASK_TIME = time(hour=0, minute=5, tzinfo=pytz.timezone('Asia/Shanghai'))
+
+
 # --- 结束动态设置 ---
 
 class ForumManagerCog(commands.Cog, name="ForumManager"):
@@ -348,7 +350,7 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
                 role_key = tag_map[str(tag.id)]
                 user_ids = await vr_cog.data_manager.get_users_in_role(role_key, interaction.guild_id)
                 if user_ids:
-                    await at_cog.perform_ghost_ping(thread, user_ids)
+                    await at_cog.perform_temp_role_ping(interaction, user_ids, tag.name, message=None, ghost_ping=True)
                     self.logger.info(f"为帖子 '{thread.name}' 的 '{role_key}' ({len(user_ids)}人) 执行了幽灵提及。")
                     vr_config = await get_virtual_role_configs_for_guild(interaction.guild_id)
                     mentioned_keys.append(vr_config.get(role_key, {}).get('name', role_key))
