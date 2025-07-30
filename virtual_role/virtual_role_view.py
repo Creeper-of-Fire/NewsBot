@@ -276,3 +276,95 @@ class ConfirmDeleteView(ui.View):
     @ui.button(label="取消", style=discord.ButtonStyle.secondary, custom_id="cancel_delete")
     async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(content="操作已取消。", view=None)
+
+# ===================================================================
+# 4. 管理员排序视图
+# ===================================================================
+class RoleSortView(ui.View):
+    def __init__(self, cog: 'VirtualRoleCog', roles: dict, guild_id: int):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.roles_config = roles  # {key: {name...}}
+        self.current_order = list(roles.keys())  # 仅 key 列表
+        self.selected_key = None
+        self.guild_id = guild_id
+
+        self.add_components()
+
+    def generate_embed(self) -> discord.Embed:
+        """生成显示当前顺序的嵌入消息。"""
+        desc_lines = ["使用下拉菜单选择一项，然后使用按钮调整其位置。\n完成后点击保存。"]
+        for i, key in enumerate(self.current_order):
+            prefix = "➡️ " if key == self.selected_key else ""
+            desc_lines.append(f"`{i + 1}.` {prefix}**{self.roles_config[key]['name']}** (`{key}`)")
+
+        embed = discord.Embed(
+            title="调整新闻组顺序",
+            description="\n".join(desc_lines),
+            color=discord.Color.gold()
+        )
+        return embed
+
+    def add_components(self):
+        """动态添加/更新视图组件。"""
+        self.clear_items()
+
+        # 下拉选择菜单
+        select_options = [
+            discord.SelectOption(label=self.roles_config[key]['name'], value=key)
+            for key in self.current_order
+        ]
+        self.add_item(ui.Select(placeholder="选择要移动的项目...", options=select_options, custom_id="sorter_select"))
+
+        # 按钮
+        has_selection = self.selected_key is not None
+        is_first = has_selection and self.current_order.index(self.selected_key) == 0
+        is_last = has_selection and self.current_order.index(self.selected_key) == len(self.current_order) - 1
+
+        self.add_item(ui.Button(label="向上", style=discord.ButtonStyle.secondary, custom_id="sorter_up", disabled=not has_selection or is_first, row=1))
+        self.add_item(ui.Button(label="向下", style=discord.ButtonStyle.secondary, custom_id="sorter_down", disabled=not has_selection or is_last, row=1))
+        self.add_item(ui.Button(label="保存顺序", style=discord.ButtonStyle.success, custom_id="sorter_save", row=2))
+        self.add_item(ui.Button(label="取消", style=discord.ButtonStyle.secondary, custom_id="sorter_cancel", row=2))
+
+        # 绑定回调
+        self.children[0].callback = self.select_callback
+        self.children[1].callback = self.move_up_callback
+        self.children[2].callback = self.move_down_callback
+        self.children[3].callback = self.save_callback
+        self.children[4].callback = self.cancel_callback
+
+    async def refresh(self, interaction: discord.Interaction):
+        """刷新视图以响应用户操作。"""
+        self.add_components()
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    # --- Callbacks ---
+    async def select_callback(self, interaction: discord.Interaction):
+        self.selected_key = interaction.data['values'][0]
+        await self.refresh(interaction)
+
+    async def move_up_callback(self, interaction: discord.Interaction):
+        if self.selected_key is None: return
+        idx = self.current_order.index(self.selected_key)
+        if idx > 0:
+            self.current_order.insert(idx - 1, self.current_order.pop(idx))
+        await self.refresh(interaction)
+
+    async def move_down_callback(self, interaction: discord.Interaction):
+        if self.selected_key is None: return
+        idx = self.current_order.index(self.selected_key)
+        if idx < len(self.current_order) - 1:
+            self.current_order.insert(idx + 1, self.current_order.pop(idx))
+        await self.refresh(interaction)
+
+    async def save_callback(self, interaction: discord.Interaction):
+        success = await self.cog.config_manager.update_role_order(self.guild_id, self.current_order)
+        if success:
+            await interaction.response.edit_message(content="✅ 顺序已成功保存！", embed=None, view=None)
+        else:
+            await interaction.response.edit_message(content="❌ 保存失败。可能是配置在此期间被其他人修改，请重试。", embed=None, view=None)
+        self.stop()
+
+    async def cancel_callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(content="操作已取消。", embed=None, view=None)
+        self.stop()

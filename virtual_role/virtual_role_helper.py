@@ -14,4 +14,4 @@ async def get_virtual_role_configs_for_guild(guild_id: int) -> Dict[str, Dict[st
         一个字典，键是虚拟身份组的key，值是包含 'name' 和 'description' 等的字典。
     """
     config_manager = VirtualRoleConfigManager()
-    return await config_manager.get_guild_config(guild_id)
+    return await config_manager.get_guild_roles_ordered(guild_id)

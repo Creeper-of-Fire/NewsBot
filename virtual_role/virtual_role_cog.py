@@ -10,7 +10,7 @@ from virtual_role.virtual_role_config_manager import VirtualRoleConfigManager
 from virtual_role.virtual_role_data_manager import VirtualRoleDataManager
 from virtual_role.virtual_role_helper import get_virtual_role_configs_for_guild
 from virtual_role.virtual_role_view import (
-    VirtualRolePanelView, RoleEditSelectView, RoleDeleteSelectView, RoleEditModal
+    VirtualRolePanelView, RoleEditSelectView, RoleDeleteSelectView, RoleEditModal, RoleSortView
 )
 # 假设您有 is_super_admin_check 函数
 from utility.permison import is_admin, is_admin_check, is_super_admin_check
@@ -149,6 +149,20 @@ class VirtualRoleCog(commands.Cog):
         view = RoleDeleteSelectView(self, roles)
         await interaction.response.send_message("请选择您想删除的新闻订阅组:", view=view, ephemeral=True)
 
+    @manage_roles_group.command(name="排序", description="调整新闻订阅组在面板中的显示顺序。")
+    @is_admin()
+    async def sort_roles(self, interaction: discord.Interaction):
+        guild_id = interaction.guild.id
+        roles = await self.config_manager.get_guild_roles_ordered(guild_id)
+        if not roles:
+            await interaction.response.send_message("❌ 本服务器没有可排序的新闻订阅组。", ephemeral=True)
+            return
+        if len(roles) < 2:
+            await interaction.response.send_message("ℹ️ 至少需要两个新闻订阅组才能进行排序。", ephemeral=True)
+            return
+
+        view = RoleSortView(self, roles, guild_id)
+        await interaction.response.send_message(embed=view.generate_embed(), view=view, ephemeral=True)
 
 async def setup(bot: 'NewsBot') -> None:
     await bot.add_cog(VirtualRoleCog(bot))
