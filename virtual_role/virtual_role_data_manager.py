@@ -93,6 +93,30 @@ class VirtualRoleDataManager:
                 self._guild_role_users[guild_id_str][role_key].append(user_id)
                 await self.save_data()
 
+    async def rename_role_key(self, guild_id: int, old_key: str, new_key: str):
+        """当一个虚拟身份组的key被重命名时，更新所有相关用户的记录。"""
+        guild_id_str = str(guild_id)
+        async with self._lock:
+            # 检查是否有这个服务器的数据
+            if guild_id_str not in self._guild_data:
+                return
+
+            user_roles_map = self._guild_data[guild_id_str]
+            updated = False
+
+            # 遍历该服务器的所有用户
+            for user_id_str, roles in user_roles_map.items():
+                if old_key in roles:
+                    roles.remove(old_key)
+                    if new_key not in roles:
+                        roles.append(new_key)
+                    updated = True
+
+            # 如果发生了更新，重建反向映射并保存
+            if updated:
+                self._rebuild_reverse_map()
+                await self.save_data()
+
     async def remove_role_from_user(self, user_id: int, role_key: str, guild_id: int):
         guild_id_str, user_id_str = str(guild_id), str(user_id)
         async with self._lock:

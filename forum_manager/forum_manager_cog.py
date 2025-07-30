@@ -14,6 +14,7 @@ from discord.ext import commands, tasks
 import config
 from config_data import GUILD_CONFIGS
 from utility.permison import is_admin
+from virtual_role.virtual_role_helper import get_virtual_role_configs_for_guild
 
 # 我们需要从 virtual_role cog 中导入视图，以便附加到新帖子上
 
@@ -50,6 +51,19 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
     def cog_unload(self):
         # 当cog卸载时，自动停止所有任务
         self.master_daily_task.cancel()
+
+    async def _get_tag_to_virtual_role_map(self, guild_id: int) -> dict[str, str]:
+        """
+        动态地从虚拟身份组配置中构建 tag_id -> role_key 的映射。
+        """
+        mapping = {}
+        # 使用我们之前创建的 helper 函数
+        all_virtual_roles = await get_virtual_role_configs_for_guild(guild_id)
+        for role_key, _config in all_virtual_roles.items():
+            tag_id = _config.get("forum_tag_id")
+            if tag_id:  # 确保 tag_id 存在且不为 null
+                mapping[str(tag_id)] = role_key
+        return mapping
 
     # ==================== 核心任务循环 ====================
     @tasks.loop(time=time(hour=0, minute=0, second=0, tzinfo=pytz.timezone("Asia/Shanghai")))
@@ -326,7 +340,8 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
             await interaction.followup.send("❌ 内部错误：虚拟身份组或@模块未加载。", ephemeral=True)
             return
 
-        tag_map = fm_config.get("tag_to_virtual_role_map", {})
+        tag_map = await self._get_tag_to_virtual_role_map(interaction.guild_id)
+
         mentioned_keys = []
         for tag in thread.applied_tags:
             if str(tag.id) in tag_map:
@@ -335,7 +350,8 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
                 if user_ids:
                     await at_cog.perform_ghost_ping(thread, user_ids)
                     self.logger.info(f"为帖子 '{thread.name}' 的 '{role_key}' ({len(user_ids)}人) 执行了幽灵提及。")
-                    mentioned_keys.append(role_key)
+                    vr_config = await get_virtual_role_configs_for_guild(interaction.guild_id)
+                    mentioned_keys.append(vr_config.get(role_key, {}).get('name', role_key))
 
         # 2. 更新快讯帖子
         today = datetime.now(pytz.timezone(fm_config.get("timezone", "UTC"))).date()
