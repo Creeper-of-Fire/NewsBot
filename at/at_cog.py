@@ -1,6 +1,7 @@
 # at_cog.py (修改后)
 import asyncio
 from typing import List, TYPE_CHECKING, Optional, Dict, Any
+import time
 
 import discord
 from discord import app_commands
@@ -60,6 +61,10 @@ class AtCog(commands.Cog):
         if not target_config: return False
         if interaction.user.id == interaction.guild.owner_id: return True
 
+        # 兼容旧配置，如果 interaction.user 是服务器所有者，则始终允许
+        if isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator:
+            return True
+
         # allowed_by_roles 的逻辑对两种类型都适用
         allowed_roles_ids_str = target_config.get("allowed_by_roles", [])
         if not allowed_roles_ids_str: return False
@@ -70,18 +75,145 @@ class AtCog(commands.Cog):
 
         return not user_role_ids.isdisjoint(allowed_roles_ids)
 
+    async def _perform_temp_role_ping(
+            self,
+            interaction: discord.Interaction,
+            user_ids: List[int],
+            target_name: str,
+            message: Optional[str],
+            ghost_ping: bool
+    ) -> None:
+        """
+        【新】使用临时身份组执行大规模提及，避免速率限制，并提供进度反馈。
+
+        1.  创建一个临时的、不可见的身份组。
+        2.  向用户显示一个"正在处理"的进度条 Embed。
+        3.  将所有目标用户添加到该身份组，并实时更新进度条。
+        4.  使身份组可提及，发送通知。
+        5.  如果 ghost_ping 为 True，删除通知消息。
+        6.  清理：删除临时身份组。
+        """
+        guild = interaction.guild
+        if not guild.me.guild_permissions.manage_roles:
+            raise discord.Forbidden(
+                response=50013,
+                message="机器人缺少 '管理身份组' 权限，无法创建临时身份组来发送通知。"
+            )
+
+        temp_role = None
+        try:
+            # 1. 创建临时身份组
+            temp_role = await guild.create_role(
+                name=f"通知-{target_name}-{int(time.time())}",
+                permissions=discord.Permissions.none(),
+                mentionable=False,
+                reason=f"为 {interaction.user} 的 /at 命令创建的临时通知组"
+            )
+
+            # 2. 发送初始进度 Embed
+            progress_embed = discord.Embed(
+                title=f"🚀 正在准备通知: {target_name}",
+                description="正在将成员添加到临时身份组...",
+                color=discord.Color.blurple()
+            )
+            total_users = len(user_ids)
+            progress_embed.add_field(name="进度", value="`[          ]` 0%", inline=False)
+            progress_embed.set_footer(text="请稍候，此过程可能需要一些时间...")
+            await interaction.edit_original_response(embed=progress_embed)
+
+            # 3. 添加成员并更新进度
+            added_count = 0
+            skipped_count = 0
+            last_update_time = time.time()
+
+            for i, user_id in enumerate(user_ids):
+                member = guild.get_member(user_id)
+                if member:
+                    try:
+                        await member.add_roles(temp_role, reason="临时通知")
+                        added_count += 1
+                    except discord.Forbidden:
+                        # 如果无法向某个特定成员添加角色（例如，机器人角色层级低于该成员），则跳过
+                        skipped_count += 1
+                    except discord.HTTPException:
+                        # 处理其他可能的API错误
+                        skipped_count += 1
+                else:
+                    skipped_count += 1
+
+                # 更新进度条，避免过于频繁地编辑消息
+                current_time = time.time()
+                if current_time - last_update_time > 1.5 or (i + 1) == total_users:
+                    percentage = (i + 1) / total_users
+                    bar = '█' * int(percentage * 10) + ' ' * (10 - int(percentage * 10))
+                    progress_embed.set_field_at(
+                        0,
+                        name="进度",
+                        value=f"`[{bar}]` {int(percentage * 100)}%\n"
+                              f"已处理: {i + 1}/{total_users} (成功: {added_count}, 跳过: {skipped_count})",
+                        inline=False
+                    )
+                    await interaction.edit_original_response(embed=progress_embed)
+                    last_update_time = current_time
+
+            # 准备最终的通知内容
+            final_content = temp_role.mention
+            final_embed = None
+            if message:
+                final_embed = discord.Embed(
+                    title=f"通知: {target_name}",
+                    description=message,
+                    color=discord.Color.purple() if ghost_ping else discord.Color.blue()
+                )
+                final_embed.set_footer(text=f"由 {interaction.user.display_name} 发送")
+
+            # 4. 发送提及
+            await temp_role.edit(mentionable=True, reason="准备发送通知")
+            sent_message = await interaction.channel.send(
+                content=final_content,
+                embed=final_embed,
+                allowed_mentions=discord.AllowedMentions(roles=True)
+            )
+
+            # 5. 如果是幽灵提及，则删除消息
+            if ghost_ping:
+                await asyncio.sleep(1)  # 稍作延迟确保通知送达
+                await sent_message.delete()
+
+            # 更新最终状态给用户
+            final_response_msg = (
+                f"✅ 成功向虚拟组 **{target_name}** ({added_count} 人) 发送了"
+                f"{'幽灵' if ghost_ping else ''}提及。"
+                f"{f' ({skipped_count} 人被跳过)' if skipped_count > 0 else ''}"
+            )
+            await interaction.edit_original_response(content=final_response_msg, embed=None)
+
+        finally:
+            # 6. 清理临时身份组
+            if temp_role:
+                try:
+                    await temp_role.delete(reason="临时通知组清理")
+                except discord.HTTPException as e:
+                    self.bot.logger.error(f"无法删除临时身份组 {temp_role.id}: {e}")
+                    # 尝试通知用户，让管理员手动删除
+                    await interaction.followup.send(
+                        f"⚠️ **重要提示**: 无法自动删除临时身份组 `{temp_role.name}`。"
+                        f"请服务器管理员手动删除。",
+                        ephemeral=True
+                    )
+
     @app_commands.command(name="发送at通知", description="安全地提及一个身份组或用户组")
     @app_commands.guild_only()
     @app_commands.describe(
         target="要提及的目标组 (输入时会自动提示)",
         message="[可选] 附加在提及后的消息内容",
-        ghost_ping="[仅虚拟组] 是否使用幽灵提及。默认为是。"
+        ghost_ping="[仅虚拟组] 发送提及后立即删除消息，实现“幽灵提及”效果。默认为是。"
     )
     @app_commands.default_permissions(send_messages=True)
     async def at(self, interaction: discord.Interaction, target: str, message: Optional[str] = None, ghost_ping: bool = True):
+        # 使用 defer 并将 thinking 设为 True，这样可以后续发送进度条
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        # 使用新的合并后的配置
         mention_map = await self._get_combined_mention_map(interaction.guild.id)
 
         if not mention_map:
@@ -125,17 +257,18 @@ class AtCog(commands.Cog):
                 )
                 await interaction.followup.send(response_msg, ephemeral=True)
 
-            # === 处理虚拟身份组 (逻辑不变, 但现在配置是动态的) ===
+            # === 【新】处理虚拟身份组 (使用临时身份组方案) ===
             elif target_type == "virtual":
                 vr_cog = self._get_virtual_role_cog()
                 if not vr_cog:
-                    await interaction.followup.send("❌ 内部错误：虚拟组功能模块未加载，无法执行操作。", ephemeral=True)
+                    await interaction.followup.send("❌ 内部错误：虚拟组功能模块未加载。", ephemeral=True)
                     return
 
                 user_ids = await vr_cog.data_manager.get_users_in_role(target, interaction.guild.id)
-                target_name = target_config.get('name', target)  # 使用配置中的显示名称
+                target_name = target_config.get('name', target)
 
                 if not user_ids:
+                    # 无成员情况下的处理
                     if message:
                         embed = discord.Embed(
                             title=f"⚠️ 通知：{target_name} (无人订阅)",
@@ -149,68 +282,30 @@ class AtCog(commands.Cog):
                         await interaction.followup.send(f"ℹ️ 虚拟组 `{target_name}` 当前没有任何成员，操作已取消。", ephemeral=True)
                     return
 
-                embed = None
-                content = ""
-                allowed_mentions = discord.AllowedMentions.none()
-
-                if ghost_ping:
-                    await self.perform_ghost_ping(interaction.channel, user_ids)
-                    response_msg = f"✅ 成功向虚拟组 **{target_name}** ({len(user_ids)} 人) 发送了幽灵提及。"
-                    if message:
-                        embed = discord.Embed(title=f"通知：{target_name}", description=message, color=discord.Color.purple())
-                        response_msg += " (含Embed)。"
-                else:  # 普通提及
-                    content = " ".join([f"<@{uid}>" for uid in user_ids])
-                    allowed_mentions = discord.AllowedMentions(users=True)
-                    response_msg = f"✅ 成功向虚拟组 **{target_name}** ({len(user_ids)} 人) 发送了消息。"
-                    if message:
-                        embed = discord.Embed(title=f"通知：{target_name}", description=message, color=discord.Color.blue())
-                        response_msg += " (含Embed)。"
-
-                if embed:
-                    embed.set_footer(text=f"由 {interaction.user.display_name} 发送")
-
-                await interaction.channel.send(content=content, embed=embed, allowed_mentions=allowed_mentions)
-                await interaction.followup.send(response_msg, ephemeral=True)
+                # 调用新的核心处理函数
+                await self._perform_temp_role_ping(interaction, user_ids, target_name, message, ghost_ping)
 
             else:
                 await interaction.followup.send(f"❌ 内部错误：`{target}` 的配置类型 `{target_type}` 无效。", ephemeral=True)
 
-        except discord.Forbidden:
-            self.bot.logger.error(f"机器人权限不足，无法在频道 {interaction.channel.name} 中发送消息或提及。")
-            await interaction.followup.send("❌ 机器人权限不足，无法完成操作。请检查机器人的身份组权限。", ephemeral=True)
+        except discord.Forbidden as e:
+            self.bot.logger.error(f"机器人权限不足: {e.text} (Code: {e.code})")
+            # 为用户提供更具体的错误信息
+            error_message = f"❌ 机器人权限不足，无法完成操作。具体原因：\n> {e.text}"
+            await interaction.edit_original_response(content=error_message, embed=None)
         except Exception as e:
             self.bot.logger.error(f"执行 /at 命令时发生未知错误: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ 执行命令时发生了一个未知错误。", ephemeral=True)
-
-    async def perform_ghost_ping(self, channel: discord.TextChannel | discord.Thread, user_ids: List[int]):
-        # 此函数逻辑不变
-        batch_size = 5
-        user_mentions = [f"<@{uid}>" for uid in user_ids]
-        for i in range(0, len(user_mentions), batch_size):
-            batch = user_mentions[i:i + batch_size]
-            ping_message_content = " ".join(batch)
-            try:
-                ping_msg = await channel.send(ping_message_content, allowed_mentions=discord.AllowedMentions(users=True))
-                await ping_msg.delete()
-                await asyncio.sleep(1)
-            except discord.Forbidden:
-                self.bot.logger.error(f"幽灵@失败：机器人无权在频道 {channel.name} 中删除消息。")
-                raise
-            except Exception as e:
-                self.bot.logger.error(f"幽灵@过程中出错: {e}", exc_info=True)
+            await interaction.edit_original_response(content=f"❌ 执行命令时发生了一个未知错误。", embed=None)
 
     @at.autocomplete('target')
     async def at_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
         choices = []
         if not interaction.guild: return choices
 
-        # 使用新的合并后的配置
         mention_map = await self._get_combined_mention_map(interaction.guild.id)
 
         for key, config in mention_map.items():
             if await self.can_user_mention(interaction, key):
-                # 使用配置中的 name 作为显示，key 作为值
                 display_name = config.get("name", key)
                 if current.lower() in key.lower() or current.lower() in display_name.lower():
                     desc_type = "虚拟组" if config.get("type") == "virtual" else "身份组"
