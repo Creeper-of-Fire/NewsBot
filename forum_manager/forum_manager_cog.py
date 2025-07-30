@@ -404,9 +404,9 @@ https://discord.com/channels/1134557553011998840/1383603412956090578/13998564917
             )
             new_embed.set_footer(text=embed_footer)
             new_embed.set_author(
-                name=f"由 {interaction.user.display_name} 发布",
-                url=f"https://discord.com/users/{interaction.user.id}",
-                icon_url=interaction.user.display_avatar.url
+                name=f"由 {thread.owner.display_name} 发布",
+                url=f"https://discord.com/users/{thread.owner.id}",
+                icon_url=thread.owner.display_avatar.url
             )
 
             await briefing_thread.send(embed=new_embed)
