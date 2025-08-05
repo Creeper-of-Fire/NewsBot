@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config_data import GUILD_CONFIGS
+from utility.permison import is_admin
 # 导入新的异步辅助函数来获取虚拟组配置
 from virtual_role.virtual_role_helper import get_virtual_role_configs_for_guild
 
@@ -107,7 +108,7 @@ class AtCog(commands.Cog):
                 name=f"通知-{target_name}-{int(time.time())}",
                 permissions=discord.Permissions.none(),
                 mentionable=False,
-                reason=f"为 {interaction.user} 的 /at 命令创建的临时通知组"
+                reason=f"为 {interaction.user} 的通知命令创建的临时通知组"
             )
 
             # 2. 发送初始进度 Embed
@@ -307,6 +308,93 @@ class AtCog(commands.Cog):
         except Exception as e:
             self.bot.logger.error(f"执行 /at 命令时发生未知错误: {e}", exc_info=True)
             await interaction.edit_original_response(content=f"❌ 执行命令时发生了一个未知错误。", embed=None)
+
+    @app_commands.command(name="子区通知", description="[管理员/记者] 向当前子区/帖子内的所有成员发送通知。")
+    @app_commands.guild_only()
+    @is_admin()  # 使用从 utility.permissions 导入的装饰器进行权限检查
+    @app_commands.describe(
+        message="要发送的通知内容。",
+        ghost_ping="是否使用幽灵提及 (发送后编辑消息移除@)。默认为是。"
+    )
+    @app_commands.default_permissions(send_messages=True)
+    async def thread_notify(self, interaction: discord.Interaction, message: str, ghost_ping: bool = True):
+        """处理向子区（Thread）内所有成员发送通知的命令。"""
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        # 1. 验证命令是否在子区中执行
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.edit_original_response(content="❌ **错误**：此命令只能在子区（Thread）或论坛帖子内使用。")
+            return
+
+        thread: discord.Thread = interaction.channel
+
+        # --- 新增：带有加载动画的成员获取逻辑 ---
+        stop_animation = asyncio.Event()
+        animation_task = None
+
+        async def animate_fetching():
+            """在后台运行一个加载动画，直到 stop_animation 事件被设置。"""
+            animation_chars = ["◐", "◓", "◑", "◒"]
+            i = 0
+            while not stop_animation.is_set():
+                char = animation_chars[i % len(animation_chars)]
+                i += 1
+                try:
+                    # 编辑原始的 ephemeral 响应，显示动画
+                    await interaction.edit_original_response(
+                        content=f"**{char} 正在获取子区成员...**\n"
+                                f"> 子区: `{thread.name}`\n"
+                                f"> 这可能需要一些时间，请稍候。"
+                    )
+                    # 等待0.8秒或直到被通知停止
+                    await asyncio.wait_for(stop_animation.wait(), timeout=0.8)
+                except asyncio.TimeoutError:
+                    pass  # 超时是正常的，意味着继续下一次动画循环
+                except discord.errors.NotFound:
+                    # 如果用户关闭了 thinking 窗口，就停止动画
+                    break
+
+        try:
+            # 2. 并发运行加载动画和成员获取
+            animation_task = self.bot.loop.create_task(animate_fetching())
+
+            # 使用 fetch_members() 来确保获取到所有成员
+            members = await thread.fetch_members()
+
+            # 成员获取完成，停止动画
+            stop_animation.set()
+            await animation_task  # 等待动画任务完全结束
+
+            # 排除机器人自己，以防万一
+            user_ids = [member.id for member in members if member.id != self.bot.user.id]
+
+            if not user_ids:
+                await interaction.edit_original_response(content=f"ℹ️ 子区 **{thread.name}** 内没有可通知的成员。")
+                return
+
+            # 3. 复用现有的 perform_temp_role_ping 函数来执行通知
+            await self.perform_temp_role_ping(
+                interaction=interaction,
+                user_ids=user_ids,
+                target_name=f"子区: {thread.name}",
+                message=message,
+                ghost_ping=ghost_ping
+            )
+
+        except discord.Forbidden as e:
+            self.bot.logger.error(f"在子区通知中权限不足: {e.text} (Code: {e.code})")
+            error_message = f"❌ 机器人权限不足，无法完成操作。\n> {e.text}\n请检查机器人是否拥有'管理身份组'权限，以及在当前子区频道的发言权限。"
+            await interaction.edit_original_response(content=error_message)
+        except Exception as e:
+            self.bot.logger.error(f"执行 /子区通知 命令时发生未知错误: {e}", exc_info=True)
+            await interaction.edit_original_response(content=f"❌ 执行命令时发生了一个未知错误。")
+        finally:
+            # 确保动画任务在任何情况下都会被停止
+            if animation_task and not animation_task.done():
+                stop_animation.set()
+
+    # <--- 新增结束 --->
+
 
     @at.autocomplete('target')
     async def at_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:

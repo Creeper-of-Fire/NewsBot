@@ -4,6 +4,8 @@ import logging
 from typing import Dict, List, Type
 
 import discord
+
+from archive.archive_cog import ArchiveCog
 from core.core_cog import CoreCog
 from discord.ext import commands
 
@@ -103,6 +105,7 @@ class CogManager:
             "core": CoreCog,
             "at": [AtCog, VirtualRoleCog],
             "forum_manager": ForumManagerCog,
+            "archive_channel":ArchiveCog,
         }
 
     async def load_all_enabled(self):
