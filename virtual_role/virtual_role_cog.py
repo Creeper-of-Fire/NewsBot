@@ -128,7 +128,7 @@ class VirtualRoleCog(commands.Cog):
     async def edit_role(self, interaction: discord.Interaction):
         """显示一个选择菜单来编辑虚拟角色"""
         guild_id = interaction.guild.id
-        roles = await self.config_manager.get_guild_config(guild_id)
+        roles = await self.config_manager.get_guild_roles_ordered(guild_id)
         if not roles:
             await interaction.response.send_message("❌ 本服务器没有可编辑的新闻订阅组。", ephemeral=True)
             return
@@ -141,7 +141,7 @@ class VirtualRoleCog(commands.Cog):
     async def delete_role(self, interaction: discord.Interaction):
         """显示一个选择菜单来删除虚拟角色"""
         guild_id = interaction.guild.id
-        roles = await self.config_manager.get_guild_config(guild_id)
+        roles = await self.config_manager.get_guild_roles_ordered(guild_id)
         if not roles:
             await interaction.response.send_message("❌ 本服务器没有可删除的新闻订阅组。", ephemeral=True)
             return

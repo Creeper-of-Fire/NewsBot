@@ -7,9 +7,7 @@ services:
     container_name: newsbot # 容器名
     restart: unless-stopped # 容器退出时自动重启，除非手动停止
     volumes:
-      # 将宿主机的 ./data 目录挂载到容器的 /app/data
-      # 这样 Bot 写入的数据文件 (如 user_virtual_roles.json) 会持久化在宿主机上
-      - ./data:/app/data
+      - newsbot_data:/app/data
     environment:
       # --- Discord 配置 ---
       # 通过环境变量将敏感信息注入到容器中
@@ -21,3 +19,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  newsbot_data:

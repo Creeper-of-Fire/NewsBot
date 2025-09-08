@@ -160,6 +160,7 @@ class ArchiveCog(commands.Cog):
                 if is_animated:
                     return f"<a:{emoji_name}.{emoji_id}>"
                 return f"<:{emoji_name}.{emoji_id}>"
+
             original_text = to_pure_text()
 
             # 检查机器人是否能访问这个表情
@@ -211,8 +212,20 @@ class ArchiveCog(commands.Cog):
             post_title: str
     ):
         """核心的备份命令。"""
+        thread = None
+
         await interaction.response.defer(ephemeral=False, thinking=True)
-        status_message = await interaction.followup.send("⏳ 正在初始化备份任务...", wait=True, ephemeral=False)
+        # 先用 interaction.followup 发送初始消息
+        initial_status_message = await interaction.followup.send("⏳ 正在初始化备份任务...", wait=True, ephemeral=False)
+        # 然后，立即通过其所在频道 fetch 它，得到一个常规的 discord.Message 对象。
+        # 这个新对象的 .edit() 方法将使用机器人的永久 token，而不是临时的 interaction token。
+        try:
+            status_message = await initial_status_message.channel.fetch_message(initial_status_message.id)
+        except (discord.NotFound, discord.Forbidden):
+            # 极端情况：消息刚发出就被删了，或者机器人失去了查看权限。
+            # 在这种情况下，我们无法更新状态，但可以继续执行任务。
+            self.bot.logger.warning("无法获取状态消息的永久句柄，将无法更新进度。")
+            status_message = None  # 将其设为None，后续的更新逻辑会跳过它。
 
         try:
             # 1. 解析URL并验证频道
@@ -224,8 +237,8 @@ class ArchiveCog(commands.Cog):
             if not source_channel:
                 await interaction.followup.send("无法找到或访问源频道URL。请检查链接是否正确，以及我是否在该服务器中。", ephemeral=True)
                 return
-            if not isinstance(source_channel, discord.TextChannel):
-                await interaction.followup.send(f"源频道必须是普通文本频道，但提供的URL指向了一个 `{type(source_channel).__name__}`。", ephemeral=True)
+            if not isinstance(source_channel, (discord.TextChannel, discord.Thread)):
+                await interaction.followup.send(f"源频道必须是普通文本频道/子区，但提供的URL指向了一个 `{type(source_channel).__name__}`。", ephemeral=True)
                 return
 
             # 验证目标频道
@@ -284,7 +297,13 @@ class ArchiveCog(commands.Cog):
                         eta_seconds = remaining_msgs / msgs_per_sec if msgs_per_sec > 0 else 0
                         eta = time.strftime("%H:%M:%S", time.gmtime(eta_seconds)) if eta_seconds > 0 else "很快"
                         progress_text = f"⚙️ 正在备份... `({index + 1}/{total_messages})`\n速度: `{msgs_per_sec:.1f}条/秒` | 预计剩余: `{eta}`"
-                        await status_message.edit(content=progress_text)
+                        if status_message:
+                            try:
+                                await status_message.edit(content=progress_text)
+                            except discord.errors.HTTPException as e:
+                                self.bot.logger.warning(f"无法更新状态消息 (可能因网络波动或权限变更): {e}")
+                            except Exception as e:
+                                self.bot.logger.error(f"更新状态消息时发生未知错误: {e}", exc_info=False)
 
                 if not message.content and not message.attachments and not message.embeds:
                     continue
@@ -396,14 +415,28 @@ class ArchiveCog(commands.Cog):
 
         except discord.errors.Forbidden:
             self.bot.logger.error(f"权限不足，无法在 #{destination_forum_url} 或 #{source_channel_url} 中操作。")
-            await interaction.followup.send(
+            error_message = (
                 "错误：我没有足够的权限来执行此操作。\n"
-                "请确保我拥有在源频道**读取历史消息**和在目标论坛频道**发送消息**、**管理Webhook**和**创建帖子**的权限。",
-                ephemeral=True
+                "请确保我拥有在源频道**读取历史消息**和在目标论坛频道**发送消息**、**管理Webhook**和**创建帖子**的权限。"
             )
+            # 如果 interaction token 还有效，就用它回复
+            if not interaction.is_expired():
+                await interaction.followup.send(error_message, ephemeral=True)
+            # 如果 token 过期了，至少在日志里记录
+            else:
+                self.bot.logger.error("Interaction token已过期，无法发送最终错误消息给用户。")
+
+
         except Exception as e:
             self.bot.logger.error(f"备份频道时发生未知错误: {e}", exc_info=True)
-            await interaction.followup.send(f"发生了一个意外错误: `{e}`\n请检查控制台日志获取详细信息。", ephemeral=True)
+            error_message = f"发生了一个意外错误: `{e}`\n请检查控制台日志获取详细信息。"
+            # 如果帖子已经创建，就在帖子中发送错误消息，因为 interaction 可能已过期。
+            if thread:
+                await thread.send(f"❌ **备份任务意外终止！**\n{error_message}")
+            # 如果帖子还没创建，尝试用 interaction 回复
+            elif not interaction.is_expired():
+                await interaction.followup.send(error_message, ephemeral=True)
+            # 如果两者都不可用，则只记录日志（已经在上面记录过了）
 
 
 async def setup(bot: 'NewsBot') -> None:

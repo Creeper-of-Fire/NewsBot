@@ -192,11 +192,11 @@ echo '--- [Remote] 2/5 : 解压新文件...'
 unzip -o "$remoteProjectBaseDir/$zipFileName" -d .
 
 echo '--- [Remote] 3/5 : 构建 Docker 镜像并启动容器...'
-# docker-compose up -d --build --remove-orphans
+# docker compose up -d --build --remove-orphans
 # --build: 强制重新构建镜像 (如果有 Dockerfile 更改)
 # -d: 后台运行
 # --remove-orphans: 删除 Compose 文件中不再定义的服务（旧容器）
-docker-compose up -d --build --remove-orphans
+docker compose up -d --build --remove-orphans
 
 echo '--- [Remote] 4/5 : 清理无用的 Docker 镜像...'
 # 清理所有未被任何容器使用的镜像
