@@ -36,6 +36,24 @@ def is_admin_check(interaction: discord.Interaction) -> bool:
 
     return False
 
+def is_admin_or_thread_owner_check(interaction: discord.Interaction) -> bool:
+    """检查用户是否为管理员，或者是否为当前帖子的作者。"""
+    # 1. 管理员总是有权限
+    if is_admin_check(interaction):
+        return True
+
+    # 2. 检查是否在帖子(Thread)中
+    if not isinstance(interaction.channel, discord.Thread):
+        # 如果命令不在帖子中运行，那么“帖子作者”这个条件就无法满足
+        return False
+
+    # 3. 检查用户是否为帖子作者
+    # interaction.channel 在此上下文中是一个 discord.Thread 对象
+    # 它有一个 owner_id 属性
+    if interaction.user.id == interaction.channel.owner_id:
+        return True
+
+    return False
 
 # --- App Command 装饰器 ---
 # 这些是我们将用在命令上的实际装饰器。
@@ -78,6 +96,21 @@ def is_admin():
 
     return app_commands.check(predicate)
 
+def is_admin_or_thread_owner():
+    """
+    一个 app_commands.check 装饰器，用于验证命令使用者是否为管理员或当前帖子的作者。
+    如果检查失败，会自动向用户发送一条预设的错误消息。
+    """
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if is_admin_or_thread_owner_check(interaction):
+            return True
+        else:
+            await interaction.response.send_message(
+                "❌ **权限不足**\n你必须是 **管理员** 或 **此帖子的作者** 才能执行此操作。",
+                ephemeral=True
+            )
+            return False
+    return app_commands.check(predicate)
 
 # --- 示例：如果你想创建一个只允许特定角色使用的检查器 ---
 def has_role(role_id: int):
