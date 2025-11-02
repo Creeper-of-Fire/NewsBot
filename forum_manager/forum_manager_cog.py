@@ -13,7 +13,7 @@ from discord.ext import commands, tasks
 
 import config
 from config_data import GUILD_CONFIGS
-from utility.permison import is_admin, is_admin_or_thread_owner
+from utility.permison import is_admin
 from virtual_role.virtual_role_helper import get_virtual_role_configs_for_guild
 
 # 我们需要从 virtual_role cog 中导入视图，以便附加到新帖子上
@@ -324,7 +324,7 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
     forum_group = app_commands.Group(
         name=f"{config.COMMAND_GROUP_NAME}丨论坛", description="新闻论坛管理指令",
         guild_ids=[gid for gid in config.GUILD_IDS],
-        default_permissions=discord.Permissions(send_messages=True)
+        default_permissions=discord.Permissions(manage_threads=True)
     )
 
     @forum_group.command(name="手动执行每日任务", description="[记者] 手动触发一次每日发帖和归档流程。")
@@ -334,8 +334,8 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         await self.daily_forum_management(interaction.guild.id)
         await interaction.followup.send("✅ 任务执行完毕。", ephemeral=True)
 
-    @forum_group.command(name="通知并更新快讯", description="[记者/帖主] 在当前帖子中使用，以通知订阅者并更新到每日快讯。")
-    @is_admin_or_thread_owner()
+    @forum_group.command(name="通知并更新快讯", description="[记者] 在当前帖子中使用，以通知订阅者并更新到每日快讯。")
+    @is_admin()
     async def notify_and_update(self, interaction: discord.Interaction):
         if not isinstance(interaction.channel, discord.Thread) or not isinstance(interaction.channel.parent, discord.ForumChannel):
             await interaction.response.send_message("❌ 此命令只能在论坛帖子内使用。", ephemeral=True)
