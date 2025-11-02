@@ -96,10 +96,7 @@ class AtCog(commands.Cog):
         """
         guild = interaction.guild
         if not guild.me.guild_permissions.manage_roles:
-            raise discord.Forbidden(
-                response=50013,
-                message="机器人缺少 '管理身份组' 权限，无法创建临时身份组来发送通知。"
-            )
+            raise app_commands.MissingPermissions(['manage_roles'])
 
         temp_role = None
         try:
