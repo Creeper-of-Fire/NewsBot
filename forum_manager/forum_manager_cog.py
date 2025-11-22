@@ -158,6 +158,15 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         past_briefing_tag_id = fm_config["past_briefing_tag_id"]
         long_term_tag_id = fm_config["long_term_tag_id"]
 
+        # --- 获取自动归档标签列表 ---
+        # 请在 config_data 中配置 'auto_archive_tag_ids': [12345, 67890]
+        auto_archive_tag_ids = fm_config.get("auto_archive_tag_ids", [])
+
+        # 简单的数据校验，确保是列表
+        if not isinstance(auto_archive_tag_ids, list):
+            self.logger.warning(f"[{guild.name}] 配置 'auto_archive_tag_ids' 格式错误，应为列表。")
+            auto_archive_tag_ids = []
+
         forum = guild.get_channel(forum_id)
         if not isinstance(forum, discord.ForumChannel):
             self.logger.error(f"[{guild.name}] 配置的论坛频道ID {forum_id} 无效或不是论坛频道。")
@@ -291,7 +300,10 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
 
         self.logger.info(f"[{guild.name}] 正在开始归档其他过时帖子")
 
-        # --- 任务3: 归档其他过时帖子 ---
+        # --- 任务3: 归档带有特定【每日总结】标签的帖子 ---
+        # 修改说明：以前是归档所有过时的帖子（除长期外）。
+        # 现在改为：只归档带有 "每日总结" (daily_summary_tag_id) 标签的帖子。
+        # 其他新闻贴将不再被机器人自动监控和关闭。
         try:
             # === 使用可配置的归档截止时间 ===
             cutoff_time_str = fm_config.get("archive_cutoff_time", "00:00")
@@ -306,15 +318,31 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
             # =================================
             # 遍历活跃帖子
             for thread in forum.threads:
-                if thread.created_at < cutoff_time and \
-                        not thread.locked and \
-                        long_term_tag_id not in [tag.id for tag in thread.applied_tags]:
-                    # 额外检查，确保不会意外归档今天的快讯（双重保险）
-                    if today_thread and thread.id == today_thread.id:
-                        continue
-                    await thread.edit(locked=True, archived=True)
-                    self.logger.info(f"[{guild.name}] 已归档过时帖子: {thread.name}")
-                    await asyncio.sleep(1)
+                # 如果帖子已归档或锁定，跳过
+                if thread.archived:
+                    continue
+
+                # 获取当前帖子的标签ID集合
+                applied_tag_ids = {tag.id for tag in thread.applied_tags}
+
+                # 条件A: 是否包含长期更新标签 (如果有，绝对不归档)
+                is_long_term = long_term_tag_id in applied_tag_ids
+
+                # 条件B: 是否包含需要归档的标签
+                should_archive_by_tag = bool(applied_tag_ids.intersection(auto_archive_tag_ids))
+
+                # 安全检查：不要归档今天的快讯
+                if thread.created_at >= cutoff_time or not should_archive_by_tag or is_long_term:
+                    continue
+
+                # 额外检查，确保不会意外归档今天的快讯（双重保险）
+                if today_thread and thread.id == today_thread.id:
+                    continue
+
+                await thread.edit(locked=True, archived=True)
+                self.logger.info(f"[{guild.name}] 已归档过时帖子: {thread.name}")
+                await asyncio.sleep(1)
+
         except Exception as e:
             self.logger.error(f"[{guild.name}] 归档其他过时帖子时出错: {e}", exc_info=True)
 
