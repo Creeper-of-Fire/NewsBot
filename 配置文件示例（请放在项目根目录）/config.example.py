@@ -23,6 +23,11 @@ STATUS_TYPE = "watching"  # 可以是 playing, watching, listening
 STATUS_TEXT = "新闻频道"
 COMMAND_GROUP_NAME = "新闻"
 
+# 管理员配置（用于权限判断）
+SUPER_ADMIN_USER_IDS = set()  # 超级管理员用户ID集合
+ADMIN_USER_IDS = set()  # 管理员用户ID集合
+ADMIN_ROLE_IDS = set()  # 管理员身份组ID集合
+
 # Cog 模块启用/禁用配置
 # 确保 "core" 和 "at" 都已启用
 COGS = {
@@ -31,5 +36,8 @@ COGS = {
     },
     "at": {
         "enabled": True,
-    }
+    },
+    "fake_ban": {
+        "enabled": True,
+    },
 }
