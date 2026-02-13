@@ -79,6 +79,33 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
         user_role_ids = {role.id for role in member.roles}
         return not user_role_ids.isdisjoint(allowed_role_ids)
 
+    # ==================== 处罚原因提示 ====================
+    def _get_reason_presets(self, config_data: dict) -> list[str]:
+        presets = config_data.get("reason_presets", [])
+        if not isinstance(presets, list):
+            return []
+        cleaned = []
+        for item in presets:
+            if isinstance(item, str) and item.strip():
+                cleaned.append(item.strip())
+        return cleaned
+
+    async def reason_autocomplete(self, interaction: discord.Interaction, current: str):
+        if not interaction.guild:
+            return []
+        config_data = self._get_guild_config(interaction.guild.id)
+        presets = self._get_reason_presets(config_data)
+        if not presets:
+            return []
+        current_text = (current or "").lower()
+        results = []
+        for item in presets:
+            if not current_text or current_text in item.lower():
+                results.append(app_commands.Choice(name=item, value=item))
+            if len(results) >= 25:
+                break
+        return results
+
     # ==================== 时长处理 ====================
     def _get_max_duration(self, config_data: dict) -> int:
         try:
@@ -128,6 +155,7 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
             app_commands.Choice(name="天", value="days")
         ]
     )
+    @app_commands.autocomplete(reason=reason_autocomplete)
     async def set_fake_ban(
             self,
             interaction: discord.Interaction,
@@ -164,19 +192,36 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
             return
 
         until_ts = int(time.time()) + duration_minutes * 60
-        await self.data_manager.set_ban(interaction.guild.id, member.id, until_ts, interaction.user.id, reason or "无")
+        reason_text = reason or "无"
+        await self.data_manager.set_ban(interaction.guild.id, member.id, until_ts, interaction.user.id, reason_text)
+
+        # 在命令频道公开展示处罚信息，便于成员查看
+        try:
+            public_embed = discord.Embed(
+                title="⛔ 假封禁",
+                color=discord.Color.red()
+            )
+            public_embed.add_field(name="成员", value=f"{member.mention} ({member.id})", inline=False)
+            public_embed.add_field(name="处罚者", value=f"{interaction.user.mention} ({interaction.user.id})", inline=False)
+            public_embed.add_field(name="时长", value=f"{duration_value} {duration_unit.name}", inline=True)
+            public_embed.add_field(name="结束", value=f"<t:{until_ts}:F>\n(<t:{until_ts}:R>)", inline=True)
+            public_embed.add_field(name="原因", value=reason_text, inline=False)
+            await interaction.channel.send(embed=public_embed)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            self.logger.warning(f"假封禁公告发送失败：{e}")
 
         await interaction.edit_original_response(
             content=(
                 f"✅ 已对 {member.mention} 启用假封禁。\n"
                 f"- 时长: {duration_value} {duration_unit.name}\n"
                 f"- 结束: <t:{until_ts}:F> (<t:{until_ts}:R>)\n"
-                f"- 原因: {reason}"
+                f"- 原因: {reason_text}"
             )
         )
 
     @fake_ban_group.command(name="解除", description="解除成员的假封禁")
     @app_commands.guild_only()
+    @app_commands.autocomplete(reason=reason_autocomplete)
     async def clear_fake_ban(
             self,
             interaction: discord.Interaction,
@@ -210,7 +255,7 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
         await interaction.edit_original_response(
             content=(
                 f"✅ 已解除 {member.mention} 的假封禁。\n"
-                f"- 原因: {reason}"
+                f"- 原因: {reason or '无'}"
             )
         )
 

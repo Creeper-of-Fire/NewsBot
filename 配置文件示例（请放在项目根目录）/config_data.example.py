@@ -64,9 +64,10 @@ GUILD_CONFIGS = {
             "allowed_by_roles": [987654321098765432],  # 允许使用假封禁的身份组ID
             "allowed_channel_ids": [123456789012345679],  # 允许生效的普通文字频道ID
             "allowed_forum_channel_ids": [123456789012345680],  # 允许生效的论坛频道ID
+            "reason_presets": ["刷屏", "引战", "广告", "骚扰"],  # 处罚原因快捷提示
             "max_duration_minutes": 10080  # 最大封禁时长（分钟，最多7天）
         }
-        }
+    },
 
     # 你可以为另一个服务器添加配置
     # 999999999999999999: {
