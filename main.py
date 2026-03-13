@@ -4,19 +4,19 @@ import logging
 from typing import Dict, List, Type
 
 import discord
-
-from archive.archive_cog import ArchiveCog
-from core.core_cog import CoreCog
 from discord.ext import commands
 
 import config
 # 导入我们的配置和模块
 import config_data
+from archive.archive_cog import ArchiveCog
 from at.at_cog import AtCog
+from core.core_cog import CoreCog
+from core.embed_link.embed_manager import EmbedLinkManager
 from forum_manager.forum_manager_cog import ForumManagerCog
 from fake_ban.fake_ban_cog import FakeBanCog
+from thread_analyzer.cog import ThreadAnalyzerCog
 from virtual_role.virtual_role_cog import VirtualRoleCog
-from core.embed_link.embed_manager import EmbedLinkManager
 
 # ===================================================================
 # 日志设置
@@ -106,7 +106,8 @@ class CogManager:
             "core": CoreCog,
             "at": [AtCog, VirtualRoleCog],
             "forum_manager": ForumManagerCog,
-            "archive_channel":ArchiveCog,
+            "archive_channel": ArchiveCog,
+            "tread_analyzer": ThreadAnalyzerCog,
             "fake_ban": FakeBanCog,
         }
 
