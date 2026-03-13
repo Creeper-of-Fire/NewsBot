@@ -14,6 +14,7 @@ from at.at_cog import AtCog
 from core.core_cog import CoreCog
 from core.embed_link.embed_manager import EmbedLinkManager
 from forum_manager.forum_manager_cog import ForumManagerCog
+from fake_ban.fake_ban_cog import FakeBanCog
 from thread_analyzer.cog import ThreadAnalyzerCog
 from virtual_role.virtual_role_cog import VirtualRoleCog
 
@@ -107,6 +108,7 @@ class CogManager:
             "forum_manager": ForumManagerCog,
             "archive_channel": ArchiveCog,
             "tread_analyzer": ThreadAnalyzerCog,
+            "fake_ban": FakeBanCog,
         }
 
     async def load_all_enabled(self):
