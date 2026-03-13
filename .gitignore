@@ -1,6 +1,4 @@
-config_data.py
 .venv
-config.py
 .idea/*
 /data/user_data.json
 __pycache__/
