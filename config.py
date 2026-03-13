@@ -65,7 +65,6 @@ SUPER_ADMIN_USER_IDS: typing.Set[int] = {
 # 注意：这里包含角色ID和特定的用户ID。
 ADMIN_ROLE_IDS: typing.Set[int] = {
     1336732734508503163,  # 类脑记者
-    1396831061643755520,  # AIGC资讯记者
     1337450755791261766,  # 管理组
     1289224017789583453,  # 服务器Admin
 }
