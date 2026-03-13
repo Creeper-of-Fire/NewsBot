@@ -1,134 +1,92 @@
 # virtual_role_data_manager.py
-import asyncio
-import json
-import os
 from collections import defaultdict
-from typing import List
+from typing import List, Dict
 
-DATA_DIR = "data"
-DATA_FILE = os.path.join(DATA_DIR, "user_virtual_roles.json")
+from utility.base_data_manager import AsyncUserGuildDataManager
 
 
-class VirtualRoleDataManager:
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(VirtualRoleDataManager, cls).__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
-    def __init__(self):
-        if self._initialized:
-            return
-        self._initialized = True
-
-        # 新数据结构: { guild_id_str: { user_id_str: [roles] } }
-        self._guild_data = {}
-        # 反向映射: { guild_id_str: { role_key: [user_ids] } }
-        self._guild_role_users = defaultdict(lambda: defaultdict(list))
-        self._lock = asyncio.Lock()
-        self._dirty = False
-        self._save_task = None
-        os.makedirs(DATA_DIR, exist_ok=True)
-        self.load_data()
+class VirtualRoleDataManager(AsyncUserGuildDataManager[List[str]]):
+    """
+    用户虚拟身份组数据管理器。
+    数据结构：Dict[str, Dict[str, List[str]]] -> { guild_id: { user_id: [role_keys] } }
+    """
+    DATA_FILENAME = "user_virtual_roles"
+    USER_MODEL = list
 
     def load_data(self):
-        try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                self._guild_data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self._guild_data = {}
+        super().load_data()
+        # 反向映射: 初始化索引容器（放在这里可以确保即使 load_data 被多次调用，索引也会同步更新）
+        self._guild_role_users: Dict[str, Dict[str, List[int]]] = defaultdict(lambda: defaultdict(list))
         self._rebuild_reverse_map()
 
     def _rebuild_reverse_map(self):
         self._guild_role_users.clear()
-        for guild_id_str, user_roles_map in self._guild_data.items():
+        for guild_id_str, user_roles_map in self.data.items():
             for user_id_str, roles in user_roles_map.items():
                 user_id = int(user_id_str)
                 for role_key in roles:
                     self._guild_role_users[guild_id_str][role_key].append(user_id)
 
-    async def save_data(self):
-        self._dirty = True
-        if self._save_task:
-            self._save_task.cancel()
-        self._save_task = asyncio.create_task(self._delayed_save())
-
-    async def _delayed_save(self):
-        try:
-            await asyncio.sleep(1.5)
-            async with self._lock:
-                if self._dirty:
-                    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                        json.dump(self._guild_data, f, indent=4, ensure_ascii=False)
-                    self._dirty = False
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._save_task = None
-
     # --- 所有公共方法都增加了 guild_id 参数 ---
 
     async def get_user_roles(self, user_id: int, guild_id: int) -> List[str]:
-        guild_id_str, user_id_str = str(guild_id), str(user_id)
-        async with self._lock:
-            return self._guild_data.get(guild_id_str, {}).get(user_id_str, [])
+        """获取用户在该服务器拥有的所有虚拟身份组 Key"""
+        return self.get_user_data(guild_id, user_id) or []
 
     async def get_users_in_role(self, role_key: str, guild_id: int) -> List[int]:
-        guild_id_str = str(guild_id)
-        async with self._lock:
-            return self._guild_role_users.get(guild_id_str, {}).get(role_key, [])
+        """获取拥有特定虚拟身份组的所有用户 ID"""
+        return self._guild_role_users.get(str(guild_id), {}).get(role_key, [])
 
     async def add_role_to_user(self, user_id: int, role_key: str, guild_id: int):
-        guild_id_str, user_id_str = str(guild_id), str(user_id)
-        async with self._lock:
-            if guild_id_str not in self._guild_data:
-                self._guild_data[guild_id_str] = {}
-            if user_id_str not in self._guild_data[guild_id_str]:
-                self._guild_data[guild_id_str][user_id_str] = []
+        """为用户添加一个虚拟身份组"""
+        # ensure_user_data 会自动处理 guild 和 user 层级的字典初始化
+        roles = self.ensure_user_data(guild_id, user_id)
 
-            if role_key not in self._guild_data[guild_id_str][user_id_str]:
-                self._guild_data[guild_id_str][user_id_str].append(role_key)
-                self._guild_role_users[guild_id_str][role_key].append(user_id)
-                await self.save_data()
+        if role_key not in roles:
+            roles.append(role_key)
+            # 同步更新索引
+            self._guild_role_users[str(guild_id)][role_key].append(user_id)
+            await self.save_data()
 
     async def rename_role_key(self, guild_id: int, old_key: str, new_key: str):
         """当一个虚拟身份组的key被重命名时，更新所有相关用户的记录。"""
         guild_id_str = str(guild_id)
-        async with self._lock:
-            # 检查是否有这个服务器的数据
-            if guild_id_str not in self._guild_data:
-                return
 
-            user_roles_map = self._guild_data[guild_id_str]
-            updated = False
+        # 检查是否有这个服务器的数据
+        if guild_id_str not in self.data:
+            return
 
-            # 遍历该服务器的所有用户
-            for user_id_str, roles in user_roles_map.items():
-                if old_key in roles:
-                    roles.remove(old_key)
-                    if new_key not in roles:
-                        roles.append(new_key)
-                    updated = True
+        user_roles_map = self.data[guild_id_str]
+        updated = False
 
-            # 如果发生了更新，重建反向映射并保存
-            if updated:
-                self._rebuild_reverse_map()
-                await self.save_data()
+        # 遍历该服务器的所有用户
+        for user_id_str, roles in user_roles_map.items():
+            if old_key in roles:
+                roles.remove(old_key)
+                if new_key not in roles:
+                    roles.append(new_key)
+                updated = True
+
+        # 如果发生了更新，重建反向映射并保存
+        if updated:
+            self._rebuild_reverse_map()
+            await self.save_data()
 
     async def remove_role_from_user(self, user_id: int, role_key: str, guild_id: int):
-        guild_id_str, user_id_str = str(guild_id), str(user_id)
-        async with self._lock:
-            if guild_id_str in self._guild_data and user_id_str in self._guild_data[guild_id_str]:
-                if role_key in self._guild_data[guild_id_str][user_id_str]:
-                    self._guild_data[guild_id_str][user_id_str].remove(role_key)
-                    if not self._guild_data[guild_id_str][user_id_str]:
-                        del self._guild_data[guild_id_str][user_id_str]
-                    if not self._guild_data[guild_id_str]:
-                        del self._guild_data[guild_id_str]
+        roles = self.get_user_data(guild_id, user_id)
 
-                    if role_key in self._guild_role_users[guild_id_str] and user_id in self._guild_role_users[guild_id_str][role_key]:
-                        self._guild_role_users[guild_id_str][role_key].remove(user_id)
+        if not roles or role_key not in roles:
+            return
 
-                    await self.save_data()
+        roles.remove(role_key)
+
+        # 更新索引
+        guild_id_str = str(guild_id)
+        if user_id in self._guild_role_users[guild_id_str].get(role_key, []):
+            self._guild_role_users[guild_id_str][role_key].remove(user_id)
+
+        # 如果用户没角色了，清理掉该用户节点（基类方法会自动清理空的服务器节点）
+        if not roles:
+            self.remove_user_data(guild_id, user_id)
+
+        await self.save_data()

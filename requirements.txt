@@ -9,6 +9,8 @@ aiohttp
 pytz
 python-dotenv
 
+pydantic>=2.0
+
 # 系统监测
 psutil
 distro

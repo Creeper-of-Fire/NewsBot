@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, date
 from typing import TYPE_CHECKING, Optional
 
 import discord
@@ -62,7 +62,7 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         # 使用我们之前创建的 helper 函数
         all_virtual_roles = await get_virtual_role_configs_for_guild(guild_id)
         for role_key, _config in all_virtual_roles.items():
-            tag_id = _config.get("forum_tag_id")
+            tag_id = _config.forum_tag_id
             if tag_id:  # 确保 tag_id 存在且不为 null
                 mapping[str(tag_id)] = role_key
         return mapping
@@ -101,7 +101,7 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         self.logger.info("机器人已上线，每日主任务准备就绪。")
 
     # --- 辅助函数 ---
-    async def find_daily_briefing_thread(self, forum: discord.ForumChannel, target_date: datetime.date) -> Optional[discord.Thread]:
+    async def find_daily_briefing_thread(self, forum: discord.ForumChannel, target_date: date) -> Optional[discord.Thread]:
         """通过标题和标签在论坛中查找指定日期的快讯帖子。(已使用健壮的日期匹配)"""
         # ==================== 正则表达式构建 ====================
         # 分别处理月和日
@@ -390,6 +390,9 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         tag_map = await self._get_tag_to_virtual_role_map(interaction.guild_id)
 
         mentioned_keys = []
+
+        vr_config = await get_virtual_role_configs_for_guild(interaction.guild_id)
+
         for tag in thread.applied_tags:
             if str(tag.id) in tag_map:
                 role_key = tag_map[str(tag.id)]
@@ -397,8 +400,10 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
                 if user_ids:
                     await at_cog.perform_temp_role_ping(interaction, user_ids, tag.name, message=None, ghost_ping=True)
                     self.logger.info(f"为帖子 '{thread.name}' 的 '{role_key}' ({len(user_ids)}人) 执行了幽灵提及。")
-                    vr_config = await get_virtual_role_configs_for_guild(interaction.guild_id)
-                    mentioned_keys.append(vr_config.get(role_key, {}).get('name', role_key))
+
+                    role_obj = vr_config.get(role_key)
+                    display_name = role_obj.name if role_obj else role_key
+                    mentioned_keys.append(display_name)
 
         # 2. 更新快讯帖子
         today = datetime.now(pytz.timezone(fm_config.get("timezone", "UTC"))).date()

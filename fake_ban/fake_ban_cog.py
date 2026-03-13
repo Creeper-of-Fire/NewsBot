@@ -30,7 +30,7 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
     def __init__(self, bot: 'NewsBot'):
         self.bot = bot
         self.logger = bot.logger
-        self.data_manager = FakeBanDataManager()
+        self.data_manager = FakeBanDataManager.get_instance()
 
     # ==================== 配置与权限 ====================
     def _get_guild_config(self, guild_id: int) -> dict:
@@ -139,7 +139,7 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
             return
 
         try:
-            await message.delete(reason="假封禁：自动删除消息")
+            await message.delete() # reason="假封禁：自动删除消息"
         except discord.Forbidden:
             self.logger.warning(f"假封禁删除失败：缺少权限，频道 {message.channel.id}")
         except discord.HTTPException as e:
@@ -193,7 +193,13 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
 
         until_ts = int(time.time()) + duration_minutes * 60
         reason_text = reason or "无"
-        await self.data_manager.set_ban(interaction.guild.id, member.id, until_ts, interaction.user.id, reason_text)
+        await self.data_manager.set_ban(
+            guild_id=interaction.guild.id,
+            user_id=member.id,
+            until_ts=until_ts,
+            operator_id=interaction.user.id,
+            reason=reason_text
+        )
 
         # 在命令频道公开展示处罚信息，便于成员查看
         try:
@@ -282,9 +288,9 @@ class FakeBanCog(commands.Cog, name="FakeBan"):
             await interaction.edit_original_response(content="✅ 该成员未处于假封禁状态。")
             return
 
-        until_ts = int(ban_data.get("until", 0))
-        operator_id = ban_data.get("operator_id")
-        reason = ban_data.get("reason", "无")
+        until_ts = ban_data.until
+        operator_id = ban_data.operator_id
+        reason = ban_data.reason
         operator_mention = f"<@{operator_id}>" if operator_id else "未知"
 
         await interaction.edit_original_response(

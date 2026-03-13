@@ -22,8 +22,8 @@ if typing.TYPE_CHECKING:
 class VirtualRoleCog(commands.Cog):
     def __init__(self, bot: 'NewsBot'):
         self.bot = bot
-        self.data_manager = VirtualRoleDataManager()
-        self.config_manager = VirtualRoleConfigManager()
+        self.data_manager = VirtualRoleDataManager.get_instance()
+        self.config_manager = VirtualRoleConfigManager.get_instance()
         # 持久化视图现在不需要 cog 实例
         self.bot.add_view(VirtualRolePanelView())
         self.bot.logger.info("持久化视图 'VirtualRolePanelView' 已注册。")
@@ -84,12 +84,11 @@ class VirtualRoleCog(commands.Cog):
         )
         stats_lines = []
         total_subscribers, unique_subscribers = 0, set()
-        sorted_roles = sorted(virtual_roles_config.items(), key=lambda item: item[1]['name'])
 
-        for role_key, config in sorted_roles:
+        for role_key, config in virtual_roles_config.items():
             user_ids = await self.data_manager.get_users_in_role(role_key, guild_id)
             subscriber_count = len(user_ids)
-            stats_lines.append(f"**{config['name']}**: `{subscriber_count}` 人")
+            stats_lines.append(f"**{config.name}**: `{subscriber_count}` 人")
             total_subscribers += subscriber_count
             unique_subscribers.update(user_ids)
 
