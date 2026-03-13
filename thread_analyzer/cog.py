@@ -6,7 +6,8 @@ import typing
 from datetime import datetime, timedelta, timezone
 
 import discord
-from discord import app_commands, snowflake_time
+from discord import app_commands
+from discord.utils import snowflake_time
 from discord.ext import commands
 
 import config
