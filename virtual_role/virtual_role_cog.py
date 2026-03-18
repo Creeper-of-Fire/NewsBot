@@ -6,7 +6,7 @@ from discord import app_commands, Color
 from discord.ext import commands
 
 from config_data import DEFAULT_VIRTUAL_ROLE_ALLOWED
-from virtual_role.virtual_role_config_manager import VirtualRoleConfigManager
+from virtual_role.virtual_role_config_manager import VirtualRoleConfigManager, RoleConfig
 from virtual_role.virtual_role_data_manager import VirtualRoleDataManager
 from virtual_role.virtual_role_helper import get_virtual_role_configs_for_guild
 from virtual_role.virtual_role_view import (
@@ -140,7 +140,7 @@ class VirtualRoleCog(commands.Cog):
     async def delete_role(self, interaction: discord.Interaction):
         """显示一个选择菜单来删除虚拟角色"""
         guild_id = interaction.guild.id
-        roles = await self.config_manager.get_guild_roles_ordered(guild_id)
+        roles: dict[str, RoleConfig] = await self.config_manager.get_guild_roles_ordered(guild_id)
         if not roles:
             await interaction.response.send_message("❌ 本服务器没有可删除的新闻订阅组。", ephemeral=True)
             return
@@ -152,7 +152,7 @@ class VirtualRoleCog(commands.Cog):
     @is_admin()
     async def sort_roles(self, interaction: discord.Interaction):
         guild_id = interaction.guild.id
-        roles = await self.config_manager.get_guild_roles_ordered(guild_id)
+        roles: dict[str, RoleConfig] = await self.config_manager.get_guild_roles_ordered(guild_id)
         if not roles:
             await interaction.response.send_message("❌ 本服务器没有可排序的新闻订阅组。", ephemeral=True)
             return

@@ -3,14 +3,15 @@ from typing import Dict, Any, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from config_data import DEFAULT_VIRTUAL_ROLE_ALLOWED
 from utility.base_data_manager import AsyncJsonDataManager, AsyncGuildDataManager
 
 
 # 单个角色的配置
 class RoleConfig(BaseModel):
-    name: str
-    description: str
-    allowed_by_roles: List[str] = Field(default_factory=list)
+    name: str = ""
+    description: str = ""
+    allowed_by_roles: List[str] = Field(default_factory=lambda: [str(r) for r in DEFAULT_VIRTUAL_ROLE_ALLOWED])
     forum_tag_id: Optional[str] = None
 
 

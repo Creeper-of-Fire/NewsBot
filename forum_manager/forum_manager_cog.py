@@ -68,7 +68,7 @@ class ForumManagerCog(commands.Cog, name="ForumManager"):
         return mapping
 
     # ==================== 核心任务循环 ====================
-    @tasks.loop(time=time(hour=0, minute=0, second=0, tzinfo=pytz.timezone("Asia/Shanghai")))
+    @tasks.loop(time=time(hour=16, minute=0, second=0))  # UTC 16:00 = 北京时间 00:00
     async def master_daily_task(self):
         """
         主每日任务循环。每天0点触发，然后遍历所有服务器执行管理。

@@ -9,6 +9,7 @@ from discord.ext import commands
 
 from config_data import GUILD_CONFIGS
 from utility.permison import is_admin
+from virtual_role.virtual_role_config_manager import RoleConfig
 # 导入新的异步辅助函数来获取虚拟组配置
 from virtual_role.virtual_role_helper import get_virtual_role_configs_for_guild
 
@@ -41,12 +42,12 @@ class AtCog(commands.Cog):
         mention_map = guild_config.get("at_config", {}).get("mention_map", {}).copy()
 
         # 2. 从新的 Config Manager 获取虚拟身份组的配置
-        virtual_roles = await get_virtual_role_configs_for_guild(guild_id)
+        virtual_roles: dict[str, RoleConfig] = await get_virtual_role_configs_for_guild(guild_id)
 
         # 3. 将虚拟组配置合并到主 mention_map 中
         for key, config in virtual_roles.items():
             # 为虚拟组配置添加 'type' 字段，以便后续逻辑判断
-            virtual_config_with_type = config.copy()
+            virtual_config_with_type = config.model_dump()
             virtual_config_with_type['type'] = 'virtual'
             mention_map[key] = virtual_config_with_type
 
