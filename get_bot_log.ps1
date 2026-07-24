@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     一键SSH连接到RoleBot的ECS服务器并获取日志。
 
@@ -72,7 +72,6 @@ if (-not $sshExePath) {
 # 调整私钥文件的权限 (可选但推荐，某些SSH客户端对权限要求严格)
 try {
     # 权限调整代码保持注释，因为在Windows上通常不需要，且可能引起不必要的复杂性
-    # 如果需要，用户可以手动取消注释并根据需要调整
 }
 catch {
     Write-Host "警告: 调整私钥文件权限失败。这通常不会阻止连接，但如果遇到权限问题，请手动检查。" -ForegroundColor Yellow
